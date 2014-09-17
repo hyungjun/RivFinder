@@ -39,7 +39,6 @@ class Writer:
     def save(self, filename):
         self.image.save(filename)
 
-
 class ArrayWriter(Writer):
     def __init__(self, arry):
         arry[np.where(arry >0)] = 255
@@ -128,7 +127,7 @@ class GraphicsFilters:
                     else:
                         flags[y,x] = 2
         flags[np.where(flags==2)] = 1
-        return flags[1:-1,1:-1]
+        return np.array(flags[1:-1,1:-1], dtype = np.uint8)
 
 class ImageThining:
     def __init__(self):
@@ -162,8 +161,8 @@ class ImageThining:
             while th > 0:
                 th = 0.
                 th = 0.
-                src_w = cv.filter2D(src_w, cv.CV_32F, kpw[i])
-                src_b = cv.filter2D(src_b, cv.CV_32F, kpb[i])
+                src_w = cv.filter2D(src_w, cv.CV_32F, self.pat_w[i])
+                src_b = cv.filter2D(src_b, cv.CV_32F, self.pat_b[i])
                 thresh, src_w = cv.threshold(src_w, 2.99, 1, cv.THRESH_BINARY)
                 thresh, src_b = cv.threshold(src_b, 2.99, 1, cv.THRESH_BINARY)
                 src_w = np.array(np.logical_and(src_w,src_b), dtype=np.float32)
@@ -177,24 +176,26 @@ class ImageThining:
 class RivFinder:
     def __init__(self,img):
         self.img = img
-        self.aimg = img
 
     def filterimage(self):
         im = self.img.copy()
 
-        print "opening1"
+        print "closing"
         for i in range(0, 1):
             im = GraphicsFilters.closing(im, 1)
 
         print "opening2"
-        for i in range(0, 12):
+        for i in range(0, 6):
             im = GraphicsFilters.opening(im, 4)
 
         print "closing"
         for i in range(0, 3):
             im = GraphicsFilters.closing(im, 5)
 
-        im = GraphicsFilters.deletecluster(im,100)
+        im = GraphicsFilters.deletecluster(im,1000)
+
+        imgT = ImageThining()
+        im = imgT.thining(im)
 
         return im
 
@@ -207,11 +208,9 @@ if __name__ == "__main__":
     img[np.where(img < 70 )] = 0
     img[np.where(img >= 70 )] = 1
     img = 1 - img
-    writer2 = ArrayWriter(img)
-    writer2.save("data/c.png")
+    ArrayWriter(img).save("data/c.png")
     rf = RivFinder(img)
     ans = rf.filterimage()
-    writer = ArrayWriter(ans)
-    writer.save("data/b.png")
+    ArrayWriter(ans).save("data/b.png")
 
 
