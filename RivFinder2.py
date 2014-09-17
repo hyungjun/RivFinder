@@ -3,6 +3,8 @@ import numpy as np
 import cv2 
 import Image, ImageDraw
 import sys
+import gdal, ogr, os, osr
+
 
 sys.setrecursionlimit(50000)
 
@@ -171,6 +173,34 @@ class ImageThining:
                 src_w = src_f.copy()
                 thresh, src_b = cv.threshold(src_f, 0.5, 1.0, cv.THRESH_BINARY_INV)
             return src_w
+
+class ImageRasterizer:
+    @classmethod
+    def array2raster(newRasterfn,rasterOrigin,pixelWidth,pixelHeight,array):
+        cols = array.shape[1]
+        rows = array.shape[0]
+        originX = rasterOrigin[0]
+        originY = rasterOrigin[1]
+
+        driver = gdal.GetDriverByName('GTiff')
+        outRaster = driver.Create(newRasterfn, cols, rows, 1, gdal.GDT_Byte)
+        outRaster.SetGeoTransform((originX, pixelWidth, 0, originY, 0, pixelHeight))
+        outband = outRaster.GetRasterBand(1)
+        outband.WriteArray(array)
+        outRasterSRS = osr.SpatialReference()
+        outRasterSRS.ImportFromEPSG(4326)
+        outRaster.SetProjection(outRasterSRS.ExportToWkt())
+        outband.FlushCache()
+        
+    @classmethod
+    def main(newRasterfn,array):
+        rasterOrigin = (-123.25745,45.43013)
+        pixelWidth = 2
+        pixelHeight = 2
+        reversed_arr = array[::-1] # reverse array so the tif looks like the array
+        array2raster(newRasterfn,rasterOrigin,pixelWidth,pixelHeight,reversed_arr) # convert array to raster
+
+    
 
 
 class RivFinder:
