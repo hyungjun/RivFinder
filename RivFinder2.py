@@ -1,6 +1,6 @@
 from pyhdf.SD import *
 import numpy as np
-import cv2 
+import cv2 as cv
 import Image, ImageDraw
 import sys
 import gdal, ogr, os, osr
@@ -31,8 +31,8 @@ class HDFReader(Reader):
 
 class ImageReader(Reader): #png, jpeg, bmp
     def __init__(self, filename):
-        im = cv2.imread(filename);
-        if len(im.shape) == 1: 
+        im = cv.imread(filename);
+        if len(im.shape) == 1:
             self.image = im
         else:
             self.image = im[:,:,0]
@@ -84,7 +84,6 @@ class GraphicsFilters:
 
         #End the search
         if len(celllist)==0:
-            if num > 100 : print num
             return num
 
         (x,y) = celllist.pop()
@@ -120,7 +119,7 @@ class GraphicsFilters:
         flags = np.zeros((ly+2,lx+2),dtype=np.int8)
         flags[1:-1,1:-1] = np.array(mask)
         for y in range(1,ly+1):
-            print "start", y
+            if y%100==0: print "start", y
             for x in range(1,lx+1):
                 if flags[y,x] == 1:
                     tnum = self.__deletecluster(flags, bias, 0, [(x,y)])
@@ -153,16 +152,17 @@ class ImageThining:
                 np.array([[0.,0.,0.],[1.,0.,0.],[1.,1.,0.]]),
                 np.array([[1.,0.,0.],[1.,0.,0.],[1.,0.,0.]]),
                 ]
+        pass
 
-        def thining(self, data):
-            src = np.array(data, dtype=np.float32)
-            thresh, src_b = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY_INV)
-            thresh, src_f = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY)
-            thresh, src_w = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY)
-            th = 1.
-            while th > 0:
-                th = 0.
-                th = 0.
+    def thining(self, data):
+        src = np.array(data, dtype=np.float32)
+        thresh, src_b = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY_INV)
+        thresh, src_f = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY)
+        thresh, src_w = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY)
+        th = 1.
+        while th > 0:
+            th = 0.
+            for i in range(8):
                 src_w = cv.filter2D(src_w, cv.CV_32F, self.pat_w[i])
                 src_b = cv.filter2D(src_b, cv.CV_32F, self.pat_b[i])
                 thresh, src_w = cv.threshold(src_w, 2.99, 1, cv.THRESH_BINARY)
@@ -172,7 +172,7 @@ class ImageThining:
                 src_f = np.array(np.logical_xor(src_f, src_w), dtype=np.float32)
                 src_w = src_f.copy()
                 thresh, src_b = cv.threshold(src_f, 0.5, 1.0, cv.THRESH_BINARY_INV)
-            return src_w
+        return src_f
 
 class ImageRasterizer:
     @classmethod
@@ -191,7 +191,7 @@ class ImageRasterizer:
         outRasterSRS.ImportFromEPSG(4326)
         outRaster.SetProjection(outRasterSRS.ExportToWkt())
         outband.FlushCache()
-        
+
     @classmethod
     def main(newRasterfn,array):
         rasterOrigin = (-123.25745,45.43013)
@@ -200,35 +200,34 @@ class ImageRasterizer:
         reversed_arr = array[::-1] # reverse array so the tif looks like the array
         array2raster(newRasterfn,rasterOrigin,pixelWidth,pixelHeight,reversed_arr) # convert array to raster
 
-    
-
 
 class RivFinder:
     def __init__(self,img):
         self.img = img
 
-    def filterimage(self):
+    def filteredimage(self):
         im = self.img.copy()
 
         print "closing"
-        for i in range(0, 1):
-            im = GraphicsFilters.closing(im, 1)
+        for i in range(0, 3):
+            im = GraphicsFilters.closing(im, 8)
+            #ArrayWriter(im.copy()).save("data/t1_"+str(i)+".png")
 
-        print "opening2"
-        for i in range(0, 6):
+        print "opening"
+        for i in range(0, 0):
             im = GraphicsFilters.opening(im, 4)
+            ArrayWriter(im).save("data/t2_"+str(i)+".png")
 
         print "closing"
-        for i in range(0, 3):
-            im = GraphicsFilters.closing(im, 5)
+        for i in range(0, 0):
+            im = GraphicsFilters.closing(im, 10)
+            ArrayWriter(im).save("data/t3_"+str(i)+".png")
 
-        im = GraphicsFilters.deletecluster(im,1000)
 
-        imgT = ImageThining()
-        im = imgT.thining(im)
+        #imz = GraphicsFilters.closing(im, 10)
+        #im = GraphicsFilters.deletecluster(im,500)
 
         return im
-
 
 
 
@@ -238,9 +237,11 @@ if __name__ == "__main__":
     img[np.where(img < 70 )] = 0
     img[np.where(img >= 70 )] = 1
     img = 1 - img
-    ArrayWriter(img).save("data/c.png")
+    ArrayWriter(img).save("data/b.png")
     rf = RivFinder(img)
-    ans = rf.filterimage()
-    ArrayWriter(ans).save("data/b.png")
-
+    ans = rf.filteredimage()
+    ArrayWriter(ans).save("data/c.png")
+    #imgT = ImageThining()
+    #img = imgT.thining(ans)
+    #ArrayWriter(img).save("data/d.png")
 
