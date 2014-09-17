@@ -48,86 +48,87 @@ class ArrayWriter(Writer):
 
 class GraphicsFilters:
     @classmethod
-    def opening(self, data, area, bias, newdata):
-       # (dx,dy) = area
-        lx = len(data[0])
-        ly = len(data)
+    def __sum8(self,data):
+        fu = np.vstack([data[1:,:],data[ -1,:]])
+        fd = np.vstack([data[0 ,:],data[:-1,:]])
+        fl = np.hstack([data[:,1:],data[:,-1:]])
+        fr = np.hstack([data[:,:1],data[:,:-1]])
+        flu = np.vstack([fl[1:,:],fl[ -1,:]])
+        frd = np.vstack([fr[0 ,:],fr[:-1,:]])
+        fdl = np.hstack([fd[:,1:],fd[:,-1:]])
+        fur = np.hstack([fu[:,:1],fu[:,:-1]])
+        tmask = fu + fd + fl + fr + flu + frd + fdl + fur
+        return tmask
 
-        fu = np.vstack([data[1:,:],np.zeros((1,lx))])
-        fd = np.vstack([np.zeros((1,lx)),data[:-1,:]])
-        fl = np.hstack([data[:,1:],np.zeros((ly,1))])
-        fr = np.hstack([np.zeros((ly,1)),data[:,:-1]])
-        flu = np.vstack([fl[1:,:],np.zeros((1,lx))])
-        frd = np.vstack([np.zeros((1,lx)),fr[:-1,:]])
-        fdl = np.hstack([fd[:,1:],np.zeros((ly,1))])
-        fur = np.hstack([np.zeros((ly,1)),fu[:,:-1]])
-
-        tmask = fu + fd + fl + flu + frd + fdl + fur
+    @classmethod
+    def opening(self, data, bias):
+        tmask = self.__sum8(data)
+        newdata = np.array(data)
         newdata[np.where(tmask>bias)] = 1
-
-        
-
-        #for x in range(dx,len(data[0])-dx):
-        #    for y in range(dy,len(data)-dy):
-        #        a = data[y-dy:y+dy+1,x-dx:x+dx+1]
-        #        if len(np.where(a==1)[0]) >= bias:
-        #            newdata[y,x] = 1
+        return newdata
 
     @classmethod
-    def closing(self, data, area, bias, newdata):
-        lx = len(data[0])
-        ly = len(data)
-
-        fu = np.vstack([data[1:,:],np.zeros((1,lx))])
-        fd = np.vstack([np.zeros((1,lx)),data[:-1,:]])
-        fl = np.hstack([data[:,1:],np.zeros((ly,1))])
-        fr = np.hstack([np.zeros((ly,1)),data[:,:-1]])
-        flu = np.vstack([fl[1:,:],np.zeros((1,lx))])
-        frd = np.vstack([np.zeros((1,lx)),fr[:-1,:]])
-        fdl = np.hstack([fd[:,1:],np.zeros((ly,1))])
-        fur = np.hstack([np.zeros((ly,1)),fu[:,:-1]])
-
-        tmask = fu + fd + fl + flu + frd + fdl + fur
-        newdata[np.where(tmask<bias)] = 0
+    def closing(self, data, bias):
+        tmask = self.__sum8(data)
+        newdata = np.array(data)
+        newdata[np.where(tmask<=bias)] = 0
+        return newdata
 
     @classmethod
-    def deletecluster(self, data, mask, bias, num, celllist):
-        if len(celllist) > bias:
-            return bias
+    # -1 : now searching
+    # 0 : no signal
+    # 1 : signal
+    # 2 : a part of big cluster
+    def __deletecluster(self, flags, bias, num, celllist):
+
+        #End the search
         if len(celllist)==0:
-           return num
+            if num > 100 : print num
+            return num
+
         (x,y) = celllist.pop()
-        if 0<=x-1<len(data[0]) and 0<=y<len(data) and data[y,x-1] == 1 and mask[y,x-1] == 0 :
-           celllist.append((x-1,y))
-           mask[y,x-1] = 1
 
-        if 0<=x+1<len(data[0]) and 0<=y<len(data) and data[y,x+1] == 1 and mask[y,x+1] == 0 :
-           celllist.append((x+1,y))
-           mask[y,x+1] = 1
+        #Cut the search
+        if num >= bias or flags[y,x]==2:
+            return bias
 
-        if 0<=x<len(data[0]) and 0<=y-1<len(data) and data[y-1,x] == 1 and mask[y-1,x] == 0 :
-           celllist.append((x,y-1))
-           mask[y-1,x] = 1
+        flags[y,x]=-1
 
-        if 0<=x<len(data[0]) and 0<=y+1<len(data) and data[y+1,x] == 1 and mask[y+1,x] == 0 :
-           celllist.append((x,y+1))
-           mask[y+1,x] = 1
+        if flags[y,x-1] > 0:
+            celllist.append((x-1,y))
+        if flags[y-1,x] > 0:
+            celllist.append((x,y-1))
+        if flags[y,x+1] > 0:
+            celllist.append((x+1,y))
+        if flags[y+1,x] > 0:
+            celllist.append((x,y+1))
 
-        tnum = self.deletecluster(data,mask,bias,num+1,celllist)
-        if tnum < bias :
-           data[y,x] = 0
+        tnum = self.__deletecluster(flags,bias,num+1,celllist)
+
+        if tnum < bias:
+            flags[y,x] = 0
+        else:
+            flags[y,x] = 2
+
         return tnum
 
     @classmethod
-    def deletesmallcluster(self, data, bias):
-        mask = np.zeros(data.shape)
-        for x in range(0,len(data[0])):
-            print "start", x
-            for y in range(0,len(data)):
-                if data[y,x] == 1 and mask[y,x] == 0 :
-                    mask[y,x] = 1
-                    self.deletecluster(data,mask,bias,0,[(x,y)])
-
+    def deletecluster(self, mask, bias):
+        lx = len(mask[0])
+        ly = len(mask)
+        flags = np.zeros((ly+2,lx+2),dtype=np.int8)
+        flags[1:-1,1:-1] = np.array(mask)
+        for y in range(1,ly+1):
+            print "start", y
+            for x in range(1,lx+1):
+                if flags[y,x] == 1:
+                    tnum = self.__deletecluster(flags, bias, 0, [(x,y)])
+                    if tnum < bias:
+                        flags[y,x] = 0
+                    else:
+                        flags[y,x] = 2
+        flags[np.where(flags==2)] = 1
+        return flags[1:-1,1:-1]
 
 class ImageThining:
     def __init__(self):
@@ -140,7 +141,7 @@ class ImageThining:
                 np.array([[0.,1.,1.],[0.,1.,0.],[0.,0.,0.]]),
                 np.array([[0.,1.,0.],[0.,1.,1.],[0.,0.,0.]]),
                 np.array([[0.,0.,0.],[0.,1.,1.],[0.,0.,1.]]),
-               ] 
+                ]
         self.pat_b = [
                 np.array([[1.,1.,0.],[1.,0.,0.],[0.,0.,0.]]),
                 np.array([[1.,1.,1.],[0.,0.,0.],[0.,0.,0.]]),
@@ -150,10 +151,27 @@ class ImageThining:
                 np.array([[0.,0.,0.],[0.,0.,0.],[1.,1.,1.]]),
                 np.array([[0.,0.,0.],[1.,0.,0.],[1.,1.,0.]]),
                 np.array([[1.,0.,0.],[1.,0.,0.],[1.,0.,0.]]),
-               ]
+                ]
 
-    def thining(self, data):
-        pass
+        def thining(self, data):
+            src = np.array(data, dtype=np.float32)
+            thresh, src_b = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY_INV)
+            thresh, src_f = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY)
+            thresh, src_w = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY)
+            th = 1.
+            while th > 0:
+                th = 0.
+                th = 0.
+                src_w = cv.filter2D(src_w, cv.CV_32F, kpw[i])
+                src_b = cv.filter2D(src_b, cv.CV_32F, kpb[i])
+                thresh, src_w = cv.threshold(src_w, 2.99, 1, cv.THRESH_BINARY)
+                thresh, src_b = cv.threshold(src_b, 2.99, 1, cv.THRESH_BINARY)
+                src_w = np.array(np.logical_and(src_w,src_b), dtype=np.float32)
+                th += np.sum(src_w)
+                src_f = np.array(np.logical_xor(src_f, src_w), dtype=np.float32)
+                src_w = src_f.copy()
+                thresh, src_b = cv.threshold(src_f, 0.5, 1.0, cv.THRESH_BINARY_INV)
+            return src_w
 
 
 class RivFinder:
@@ -163,24 +181,21 @@ class RivFinder:
 
     def filterimage(self):
         im = self.img.copy()
-        nim = self.img.copy()
 
-        for i in range(0, 48):
-            GraphicsFilters.closing(im, (1,1), 3, nim)
-            im = nim
-            print i ,"opening1"
+        print "opening1"
+        for i in range(0, 1):
+            im = GraphicsFilters.closing(im, 1)
 
-        for i in range(0, 48):
-            GraphicsFilters.closing(im, (1,1), 4, nim)
-            im = nim
-            print i , "opening2"
-
+        print "opening2"
         for i in range(0, 12):
-            GraphicsFilters.opening(im, (1,1), 6, nim)
-            im = nim
-            print i , "closing"
+            im = GraphicsFilters.opening(im, 4)
 
-       #a GraphicsFilters.deletesmallcluster(im,1000)
+        print "closing"
+        for i in range(0, 3):
+            im = GraphicsFilters.closing(im, 5)
+
+        im = GraphicsFilters.deletecluster(im,100)
+
         return im
 
 
@@ -191,6 +206,9 @@ if __name__ == "__main__":
     img = reader.getarray()
     img[np.where(img < 70 )] = 0
     img[np.where(img >= 70 )] = 1
+    img = 1 - img
+    writer2 = ArrayWriter(img)
+    writer2.save("data/c.png")
     rf = RivFinder(img)
     ans = rf.filterimage()
     writer = ArrayWriter(ans)
