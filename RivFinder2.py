@@ -9,8 +9,13 @@ import gdal, ogr, os, osr
 sys.setrecursionlimit(50000)
 
 class Reader:
-    def getarray (self):
-        return self.image
+    def getarray(self):
+        return self.image.copy()
+
+    def get2tonearray(self, func):
+        ans = np.zeros(self.image.shape,dtype=np.uint8)
+        ans[np.where(func(self.image))] = 1
+        return ans
 
 class HDFReader(Reader):
     def __init__(self, filename):
@@ -43,9 +48,9 @@ class Writer:
 
 class ArrayWriter(Writer):
     def __init__(self, arry):
-        arry[np.where(arry >0)] = 255
-        self.image = Image.fromarray(arry)
-
+        new = arry.copy()
+        new[np.where(new > 0)] = 255
+        self.image = Image.fromarray(new)
 
 class GraphicsFilters:
     @classmethod
@@ -208,10 +213,12 @@ class RivFinder:
     def filteredimage(self):
         im = self.img.copy()
 
+        im = GraphicsFilters.deletecluster(im,100)
+
         print "closing"
-        for i in range(0, 3):
-            im = GraphicsFilters.closing(im, 8)
-            #ArrayWriter(im.copy()).save("data/t1_"+str(i)+".png")
+        for i in range(0, 24):
+            im = GraphicsFilters.opening(im, 3)
+            ArrayWriter(im.copy()).save("data/t1_"+str(i)+".png")
 
         print "opening"
         for i in range(0, 0):
@@ -220,27 +227,22 @@ class RivFinder:
 
         print "closing"
         for i in range(0, 0):
-            im = GraphicsFilters.closing(im, 10)
+            im = GraphicsFilters.closing(im, 5)
             ArrayWriter(im).save("data/t3_"+str(i)+".png")
 
-
-        #imz = GraphicsFilters.closing(im, 10)
-        #im = GraphicsFilters.deletecluster(im,500)
+        im = GraphicsFilters.deletecluster(im,1000)
 
         return im
 
 
 
 if __name__ == "__main__":
-    reader = ImageReader("data/a.png")
-    img = reader.getarray()
-    img[np.where(img < 70 )] = 0
-    img[np.where(img >= 70 )] = 1
-    img = 1 - img
-    ArrayWriter(img).save("data/b.png")
+    reader = ImageReader("data/1.png")
+    img = reader.get2tonearray(lambda x: x < 70)
+    ArrayWriter(img).save("data/a.png")
     rf = RivFinder(img)
     ans = rf.filteredimage()
-    ArrayWriter(ans).save("data/c.png")
+    ArrayWriter(ans).save("data/b.png")
     #imgT = ImageThining()
     #img = imgT.thining(ans)
     #ArrayWriter(img).save("data/d.png")
