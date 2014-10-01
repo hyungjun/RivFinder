@@ -4,7 +4,8 @@ import cv2 as cv
 import Image, ImageDraw
 import sys
 import gdal, ogr, os, osr
-
+import thinning
+import Raster2VectorLine
 
 sys.setrecursionlimit(50000)
 
@@ -15,6 +16,10 @@ class Reader:
     def get2tonearray(self, func):
         ans = np.zeros(self.image.shape,dtype=np.uint8)
         ans[np.where(func(self.image))] = 1
+        return ans
+
+    def get2tonearrayx(self):
+        ans = cv.adaptiveThreshold(self.image,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C,cv.THRESH_BINARY_INV,11,10)
         return ans
 
 class HDFReader(Reader):
@@ -124,7 +129,6 @@ class GraphicsFilters:
         flags = np.zeros((ly+2,lx+2),dtype=np.int8)
         flags[1:-1,1:-1] = np.array(mask)
         for y in range(1,ly+1):
-            if y%100==0: print "start", y
             for x in range(1,lx+1):
                 if flags[y,x] == 1:
                     tnum = self.__deletecluster(flags, bias, 0, [(x,y)])
@@ -134,50 +138,6 @@ class GraphicsFilters:
                         flags[y,x] = 2
         flags[np.where(flags==2)] = 1
         return np.array(flags[1:-1,1:-1], dtype = np.uint8)
-
-class ImageThining:
-    def __init__(self):
-        self.pat_w = [
-                np.array([[0.,0.,0.],[0.,1.,1.],[0.,1.,0.]]),
-                np.array([[0.,0.,0.],[0.,1.,0.],[1.,1.,0.]]),
-                np.array([[0.,0.,0.],[1.,1.,0.],[0.,1.,0.]]),
-                np.array([[1.,0.,0.],[1.,1.,0.],[0.,0.,0.]]),
-                np.array([[0.,1.,0.],[1.,1.,0.],[0.,0.,0.]]),
-                np.array([[0.,1.,1.],[0.,1.,0.],[0.,0.,0.]]),
-                np.array([[0.,1.,0.],[0.,1.,1.],[0.,0.,0.]]),
-                np.array([[0.,0.,0.],[0.,1.,1.],[0.,0.,1.]]),
-                ]
-        self.pat_b = [
-                np.array([[1.,1.,0.],[1.,0.,0.],[0.,0.,0.]]),
-                np.array([[1.,1.,1.],[0.,0.,0.],[0.,0.,0.]]),
-                np.array([[0.,1.,1.],[0.,0.,1.],[0.,0.,0.]]),
-                np.array([[0.,0.,1.],[0.,0.,1.],[0.,0.,1.]]),
-                np.array([[0.,0.,0.],[0.,0.,1.],[0.,1.,1.]]),
-                np.array([[0.,0.,0.],[0.,0.,0.],[1.,1.,1.]]),
-                np.array([[0.,0.,0.],[1.,0.,0.],[1.,1.,0.]]),
-                np.array([[1.,0.,0.],[1.,0.,0.],[1.,0.,0.]]),
-                ]
-        pass
-
-    def thining(self, data):
-        src = np.array(data, dtype=np.float32)
-        thresh, src_b = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY_INV)
-        thresh, src_f = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY)
-        thresh, src_w = cv.threshold(src, 0.5, 1.0, cv.THRESH_BINARY)
-        th = 1.
-        while th > 0:
-            th = 0.
-            for i in range(8):
-                src_w = cv.filter2D(src_w, cv.CV_32F, self.pat_w[i])
-                src_b = cv.filter2D(src_b, cv.CV_32F, self.pat_b[i])
-                thresh, src_w = cv.threshold(src_w, 2.99, 1, cv.THRESH_BINARY)
-                thresh, src_b = cv.threshold(src_b, 2.99, 1, cv.THRESH_BINARY)
-                src_w = np.array(np.logical_and(src_w,src_b), dtype=np.float32)
-                th += np.sum(src_w)
-                src_f = np.array(np.logical_xor(src_f, src_w), dtype=np.float32)
-                src_w = src_f.copy()
-                thresh, src_b = cv.threshold(src_f, 0.5, 1.0, cv.THRESH_BINARY_INV)
-        return src_f
 
 class ImageRasterizer:
     @classmethod
@@ -213,24 +173,29 @@ class RivFinder:
     def filteredimage(self):
         im = self.img.copy()
 
-        im = GraphicsFilters.deletecluster(im,100)
-
-        print "closing"
-        for i in range(0, 24):
+        print "opening"
+        for i in range(0, 12):
             im = GraphicsFilters.opening(im, 3)
-            ArrayWriter(im.copy()).save("data/t1_"+str(i)+".png")
+            ArrayWriter(im.copy()).save("data/temp/t1_"+str(i)+".png")
+
+        im = GraphicsFilters.deletecluster(im,100)
+        ArrayWriter(im).save("data/temp/t2.png")
 
         print "opening"
-        for i in range(0, 0):
-            im = GraphicsFilters.opening(im, 4)
-            ArrayWriter(im).save("data/t2_"+str(i)+".png")
+        for i in range(0, 12):
+            im = GraphicsFilters.opening(im, 3)
+            ArrayWriter(im.copy()).save("data/temp/t3_"+str(i)+".png")
 
         print "closing"
-        for i in range(0, 0):
+        for i in range(0, 1):
             im = GraphicsFilters.closing(im, 5)
-            ArrayWriter(im).save("data/t3_"+str(i)+".png")
+            ArrayWriter(im).save("data/temp/t4_"+str(i)+".png")
 
-        im = GraphicsFilters.deletecluster(im,1000)
+        im = GraphicsFilters.deletecluster(im,2000)
+        ArrayWriter(im).save("data/temp/t5.png")
+
+        print "thinning"
+        im = thinning.thinning(im)
 
         return im
 
@@ -239,10 +204,13 @@ class RivFinder:
 if __name__ == "__main__":
     reader = ImageReader("data/1.png")
     img = reader.get2tonearray(lambda x: x < 70)
+    #img = reader.get2tonearrayx()
     ArrayWriter(img).save("data/a.png")
     rf = RivFinder(img)
     ans = rf.filteredimage()
     ArrayWriter(ans).save("data/b.png")
+    Raster2VectorLine.main("data/b.png","data/c.shp",0)
+
     #imgT = ImageThining()
     #img = imgT.thining(ans)
     #ArrayWriter(img).save("data/d.png")
